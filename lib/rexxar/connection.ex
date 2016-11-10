@@ -42,6 +42,20 @@ defmodule Rexxar.Connection do
     {:noreply, state(s, parser: {ctx, stack}, froms: froms)}
   end
 
+  #TODO: extract connect, backoff, either error or retry for existing sends
+  def handle_info({:tcp_closed, tcp_port}, state(port: port)) when tcp_port == port do
+    {:ok, s} = init(0)
+    {:noreply, s}
+  end
+
+  def handle_info({:do_connect}, s) do
+
+  end
+
+  def handle_info(_, s) do
+    {:noreply, s}
+  end
+
   def parse_and_reply(msg, ctx, stack, froms) do
     case do_parse(msg, ctx, stack) do
       {:value, result, t} ->
@@ -113,6 +127,10 @@ defmodule Rexxar.Connection do
   end
   def parse_head("*" <> line) do
     {:array, parse_int(line)}
+  end
+  #TODO: return error to caller
+  def parse_head("-" <> line) do
+    {:string, line}
   end
 
   def merge({type, value}, []) do
