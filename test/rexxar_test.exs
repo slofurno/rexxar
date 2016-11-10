@@ -30,20 +30,19 @@ defmodule RexxarTest do
     :os.system_time(:milli_seconds)
   end
 
-  test "incr bench" do
-    {:ok, p} = Rexxar.Connection.start_link
-    Rexxar.Connection.send(p, ["SET", "aaaa", "0"])
-    t0 = epoch()
-    tasks = Enum.map(1..10000, fn x ->
-      Task.async(fn -> Rexxar.Connection.send(p, ["INCR", "aaaa"]) end)
-    end)
+  #  test "incr bench" do
+  #    {:ok, p} = Rexxar.Connection.start_link
+  #    Rexxar.Connection.command(p, ["SET", "aaaa", "0"])
+  #    t0 = epoch()
+  #    tasks = Enum.map(1..10000, fn x ->
+  #      Task.async(fn -> Rexxar.Connection.command(p, ["INCR", "aaaa"]) end)
+  #    end)
+  #
+  #    Task.yield_many(tasks)
+  #    t1 = epoch()
+  #    IO.inspect(t1-t0)
+  #  end
 
-    Task.yield_many(tasks)
-    t1 = epoch()
-    IO.inspect(t1-t0)
-  end
-
-  @new_ctx {:head, ""}
   test "binary safe string w/ crlf" do
     msg = "ASDF\r\nGGGG"
     pmsg = "$10\r\n" <> msg <> "\r\n"
@@ -53,19 +52,60 @@ defmodule RexxarTest do
     assert value == msg
   end
 
-  test "get long string bench" do
+  #  test "get long string bench" do
+  #    {:ok, p} = Rexxar.Connection.start_link
+  #    t0 = epoch()
+  #
+  #    str = Enum.reduce(1..10, "ASDF ASDF GDF gdfg dfg\r\n", fn _, a -> a <> a end)
+  #    Rexxar.Connection.command(p, ["SET", "aaaa", str])
+  #
+  #    tasks = Enum.map(1..100, fn x ->
+  #      Task.async(fn -> Rexxar.Connection.command(p, ["GET", "aaaa"]) end)
+  #    end)
+  #
+  #    Task.yield_many(tasks)
+  #    t1 = epoch()
+  #    IO.inspect(t1-t0)
+  #  end
+
+  # we dont always get the expected incr results, but that
+  # is because some of our calls are received out of order
+  #  test "pipelining recv order" do
+  #    {:ok, p} = Rexxar.Connection.start_link
+  #    Rexxar.Connection.command(p, ~w(SET aaaa 0))
+  #
+  #    tasks = Enum.map(1..1000, fn x ->
+  #      Task.async(fn ->
+  #        Rexxar.Connection.command(p, ~w(INCR aaaa), x)
+  #      end)
+  #    end)
+  #
+  #    results = Task.yield_many(tasks)
+  #    |> Enum.map(fn {_, {:ok, result}} -> result end)
+  #
+  #    {_, _, _, _, xs} = GenServer.call(p, :state)
+  #
+  #    Enum.zip(1..1000, Enum.reverse(xs))
+  #    |> Enum.filter(fn {result, order} ->
+  #      result != order
+  #    end)
+  #    |> IO.inspect
+  #  end
+
+  test "pipeline resp order" do
     {:ok, p} = Rexxar.Connection.start_link
-    t0 = epoch()
+    keys = for a <- ?A..?Z, b <- ?A..?Z, c <- ?A..?G, do: <<a, b, c>>
 
-    str = Enum.reduce(1..10, "ASDF ASDF GDF gdfg dfg\r\n", fn _, a -> a <> a end)
-    Rexxar.Connection.send(p, ["SET", "aaaa", str])
+    Enum.each(keys, fn x ->
+      Rexxar.Connection.command(p, ~w(SET #{x} #{x}))
+    end)
 
-    tasks = Enum.map(1..1000, fn x ->
-      Task.async(fn -> Rexxar.Connection.send(p, ["GET", "aaaa"]) end)
+    tasks = Enum.map(keys, fn x ->
+      Task.async(fn ->
+        assert Rexxar.Connection.command(p, ~w(GET #{x})) == x
+      end)
     end)
 
     Task.yield_many(tasks)
-    t1 = epoch()
-    IO.inspect(t1-t0)
   end
 end

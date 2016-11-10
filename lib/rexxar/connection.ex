@@ -16,13 +16,17 @@ defmodule Rexxar.Connection do
     {:ok, state(port: port, froms: :queue.new, parser: Parser.new)}
   end
 
-  def send(pid, msg) do
-    GenServer.call(pid, {:send, msg}, :infinity)
+  def command(pid, command) do
+    GenServer.call(pid, {:command, command}, :infinity)
   end
 
-  def handle_call({:send, msg}, from, state(port: port, froms: froms) = s) do
-    :ok = :gen_tcp.send(port, Parser.format_message(msg))
+  def handle_call({:command, command}, from, state(port: port, froms: froms) = s) do
+    :ok = :gen_tcp.send(port, Parser.format_message(command))
     {:noreply, state(s, froms: :queue.in(from, froms))}
+  end
+
+  def handle_call(:state, _from, s) do
+    {:reply, s, s}
   end
 
   def handle_info({:tcp, tcp_port, msg}, state(port: port, parser: parser, froms: froms) = s)
