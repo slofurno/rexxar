@@ -2,6 +2,8 @@ defmodule RexxarTest do
   use ExUnit.Case
   doctest Rexxar
 
+  alias Rexxar.Parser
+
   test "the truth" do
     assert 1 + 1 == 2
   end
@@ -9,7 +11,8 @@ defmodule RexxarTest do
   test "parse nested array" do
     s = "*2\r\n*3\r\n:1\r\n:2\r\n:3\r\n*2\r\n+Foo\r\n+Bar\r\n"
     r = [[1,2,3], ["Foo", "Bar"]]
-    {:value, result, _} = Rexxar.Connection.do_parse(s, {:head, ""}, [])
+    parser = Parser.new()
+    {:value, result, _} = Parser.parse(parser, s)
     assert result == r
   end
 
@@ -17,9 +20,10 @@ defmodule RexxarTest do
     s1 = "*2\r\n*3\r\n:1\r\n:2\r\n:"
     s2 = "3\r\n*2\r\n+Foo\r\n+Bar\r\n"
     r = [[1,2,3], ["Foo", "Bar"]]
-    {:end, ctx, stack} = Rexxar.Connection.do_parse(s1, {:head, ""}, [])
-    {:value, result, _} = Rexxar.Connection.do_parse(s2, ctx, stack)
-    assert result == r
+    parser = Parser.new()
+    {:end, parser} = Parser.parse(parser, s1)
+    {:value, value, _} = Parser.parse(parser, s2)
+    assert value == r
   end
 
   def epoch do
@@ -43,7 +47,9 @@ defmodule RexxarTest do
   test "binary safe string w/ crlf" do
     msg = "ASDF\r\nGGGG"
     pmsg = "$10\r\n" <> msg <> "\r\n"
-    {:value, value, ""} = Rexxar.Connection.do_parse(pmsg, @new_ctx, [])
+
+    parser = Parser.new()
+    {:value, value, ""} = Parser.parse(parser, pmsg)
     assert value == msg
   end
 
