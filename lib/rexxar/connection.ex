@@ -33,7 +33,7 @@ defmodule Rexxar.Connection do
   end
 
   def parse(<<"\r", t::binary>>, stack) do
-    {:continue, stack, t}
+    parse(t, stack)
   end
 
   def parse(<<"\n", t::binary>>, stack) do
@@ -41,19 +41,15 @@ defmodule Rexxar.Connection do
   end
 
   def parse(<<h, t::binary>>, {:head, head} = ctx) do
-    {:continue, {:head, <<head::binary, h>>}, t}
+    parse(t, {:head, <<head::binary, h>>})
   end
 
   def parse(<<h, t::binary>>, {:bulk, value, 1} = ctx) do
-    {:continue, {:bulk, <<value::binary, h>>}, t}
+    parse(t, {:bulk, <<value::binary, h>>})
   end
 
   def parse(<<h, t::binary>>, {:bulk, value, left} = ctx) do
-    {:continue, {:bulk, <<value::binary, h>>, left-1}, t}
-  end
-
-  def parse(<<h, t::binary>>, {type, value} = stack) do
-    {:continue, {type, <<value::binary, h>>}}
+    parse(t, {:bulk, <<value::binary, h>>, left-1})
   end
 
   def parse(<<>>, ctx) do
@@ -64,9 +60,6 @@ defmodule Rexxar.Connection do
 
   def do_parse(t, ctx, stack) do
     case parse(t, ctx) do
-      #keep parsing this value
-      {:continue, ctx, t} -> do_parse(t, ctx, stack)
-
       {:array, len, t} -> do_parse(t, {:head, ""}, [{[], len}|stack])
 
       {:bulk, len, t} -> do_parse(t, {:bulk, "", len}, stack)
@@ -81,10 +74,6 @@ defmodule Rexxar.Connection do
           {:merged, stack} -> do_parse(t, @new_ctx, stack)
         end
     end
-  end
-
-  def handle_parse(state) do
-    
   end
 
   def parse_head("+" <> line) do
@@ -124,40 +113,4 @@ defmodule Rexxar.Connection do
     {i, _} = Integer.parse(n)
     i
   end
-
-  def merge(x, {:array, xs, 1}) do
-    {:ok, [x|xs]}
-  end
-
-  def merge(x, {:array, xs, n}) do
-    {:continue, {:array, [x|xs], n-1}}
-  end
-
-  def line_length(<<"\r", _>>, n), do: n
-  def line_length(<<h, t::binary>>, n), do: line_length(t, n+1)
-
-  def readline(<<"\r\n", t::binary>>, line), do: {line, t}
-  def readline(<<h, t::binary>>, line), do: readline(t, <<line, h>>)
-
-  def readline("+" <> t), do: {:simple_string, readline(t, "")}
-  def readline(":" <> t), do: {:integer, parse_integer(t, 0)}
-  def readline("$" <> t), do: {:bulk_string, parse_integer(t, 0)}
-  def readline("*" <> t), do: {:array, parse_integer(t, 0)}
-
-  def handle_info(n, s) do
-    IO.inspect(n)
-    {:noreply, s}
-  end
-
-  def parse_integer("0" <> t, n), do: parse_integer(t, 10*n)
-  def parse_integer("1" <> t, n), do: parse_integer(t, 10*n + 1)
-  def parse_integer("2" <> t, n), do: parse_integer(t, 10*n + 2)
-  def parse_integer("3" <> t, n), do: parse_integer(t, 10*n + 3)
-  def parse_integer("4" <> t, n), do: parse_integer(t, 10*n + 4)
-  def parse_integer("5" <> t, n), do: parse_integer(t, 10*n + 5)
-  def parse_integer("6" <> t, n), do: parse_integer(t, 10*n + 6)
-  def parse_integer("7" <> t, n), do: parse_integer(t, 10*n + 7)
-  def parse_integer("8" <> t, n), do: parse_integer(t, 10*n + 8)
-  def parse_integer("9" <> t, n), do: parse_integer(t, 10*n + 9)
-  def parse_integer("\r\n" <> t, n), do: {n, t}
 end
