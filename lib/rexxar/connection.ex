@@ -2,7 +2,9 @@ defmodule Rexxar.Connection do
   use GenServer
   import Record
 
-  defrecord :state, [:port]
+  defrecord :state, [:port, :froms, :parser]
+  @new_ctx {:head, ""}
+  @initial_parse_state {@new_ctx, []}
 
   def start_link() do
     GenServer.start_link(__MODULE__, [])
@@ -10,18 +12,45 @@ defmodule Rexxar.Connection do
 
   def init(_) do
     {:ok, port} = :gen_tcp.connect('localhost', 6379, [])
-    :inet.setopts(port, [:binary, {:active, true}])
-    {:ok, state(port: port)}
+    :inet.setopts(port, [:binary, {:active, :once}])
+    {:ok, state(port: port, froms: :queue.new, parser: @initial_parse_state)}
   end
 
-  def handle_cast({:send, msg}, state(port: port) = s) do
-    :ok = :gen_tcp.send(port, msg)
-    {:noreply, s}
+  def send(pid, msg) do
+    GenServer.call(pid, {:send, msg}, :infinity)
   end
 
-  def handle_info({:tcp, tcp_port, msg}, state(port: port) = s) when tcp_port == port do
-    IO.inspect(msg)
-    {:noreply, s}
+  def handle_call({:send, msg}, from, state(port: port, froms: froms) = s) do
+    :ok = :gen_tcp.send(port, format_message(msg))
+    {:noreply, state(s, froms: :queue.in(from, froms))}
+  end
+
+  def format_message(msg) when is_list(msg) do
+    ["*#{Enum.count(msg)}\r\n"| Enum.map(msg, &format_message/1)]
+  end
+  def format_message(msg) when is_binary(msg) do
+    "$#{byte_size(msg)}\r\n" <> msg <> "\r\n"
+  end
+  def format_message(msg) when is_integer(msg) do
+    ":#{msg}\r\n"
+  end
+
+  def handle_info({:tcp, tcp_port, msg}, state(port: port, parser: {ctx, stack}, froms: froms) = s)
+      when tcp_port == port do
+    :inet.setopts(port, [{:active, :once}])
+    {:ok, ctx, stack, froms} = parse_and_reply(msg, ctx, stack, froms)
+    {:noreply, state(s, parser: {ctx, stack}, froms: froms)}
+  end
+
+  def parse_and_reply(msg, ctx, stack, froms) do
+    case do_parse(msg, ctx, stack) do
+      {:value, result, t} ->
+        {{:value, from}, froms} = :queue.out(froms)
+        GenServer.reply(from, result)
+        parse_and_reply(t, @new_ctx, [], froms)
+
+      {:end, ctx, stack} -> {:ok, ctx, stack, froms}
+    end
   end
 
   def parse(<<"\n", t::binary>>, {:head, head}) do
@@ -32,10 +61,17 @@ defmodule Rexxar.Connection do
     end
   end
 
+  #binaries can have \r\n
+  def parse(<<h, t::binary>>, {:bulk, value, 1} = ctx) do
+    parse(t, {:bulk, <<value::binary, h>>})
+  end
+  def parse(<<h, t::binary>>, {:bulk, value, left} = ctx) do
+    parse(t, {:bulk, <<value::binary, h>>, left-1})
+  end
+
   def parse(<<"\r", t::binary>>, stack) do
     parse(t, stack)
   end
-
   def parse(<<"\n", t::binary>>, stack) do
     {:ok, stack, t}
   end
@@ -44,19 +80,9 @@ defmodule Rexxar.Connection do
     parse(t, {:head, <<head::binary, h>>})
   end
 
-  def parse(<<h, t::binary>>, {:bulk, value, 1} = ctx) do
-    parse(t, {:bulk, <<value::binary, h>>})
-  end
-
-  def parse(<<h, t::binary>>, {:bulk, value, left} = ctx) do
-    parse(t, {:bulk, <<value::binary, h>>, left-1})
-  end
-
   def parse(<<>>, ctx) do
     {:end, ctx}
   end
-
-  @new_ctx {:head, ""}
 
   def do_parse(t, ctx, stack) do
     case parse(t, ctx) do
@@ -93,7 +119,7 @@ defmodule Rexxar.Connection do
     case type do
       :bulk -> {:ok, value}
       :string -> {:ok, value}
-      :int -> {:ok, parse_int(value)}
+      :int -> {:ok, value}
       :array -> {:ok, value}
     end
   end
