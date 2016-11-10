@@ -28,6 +28,8 @@ defmodule Rexxar.Mixfile do
   #
   # Type "mix help deps" for more examples and options
   defp deps do
-    []
+    [
+      {:dialyxir, "~> 0.4", only: [:dev]}
+    ]
   end
 end
