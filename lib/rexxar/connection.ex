@@ -12,7 +12,7 @@ defmodule Rexxar.Connection do
 
   def init(_) do
     {:ok, port} = :gen_tcp.connect('localhost', 6379, [])
-    :inet.setopts(port, [:binary, {:active, :once}])
+    :ok = :inet.setopts(port, [:binary, {:active, :once}])
     {:ok, state(port: port, froms: :queue.new, parser: Parser.new)}
   end
 
@@ -31,7 +31,7 @@ defmodule Rexxar.Connection do
 
   def handle_info({:tcp, tcp_port, msg}, state(port: port, parser: parser, froms: froms) = s)
       when tcp_port == port do
-    :inet.setopts(port, [{:active, :once}])
+    :ok = :inet.setopts(port, [{:active, :once}])
     {:ok, parser, froms} = parse_and_reply(parser, msg, froms)
     {:noreply, state(s, parser: parser, froms: froms)}
   end
@@ -43,14 +43,14 @@ defmodule Rexxar.Connection do
   end
 
   def handle_info({:do_connect}, s) do
-
+    {:noreply, s}
   end
 
   def handle_info(_, s) do
     {:noreply, s}
   end
 
-  def parse_and_reply(%Parser{ctx: ctx, stack: stack} = parser, msg, froms) do
+  def parse_and_reply(%Parser{} = parser, msg, froms) do
     case Parser.parse(parser, msg) do
       {:value, result, t} ->
         {{:value, from}, froms} = :queue.out(froms)

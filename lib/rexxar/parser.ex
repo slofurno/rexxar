@@ -12,74 +12,53 @@ defmodule Rexxar.Parser do
     stack: [stack_frame] | []
   }
 
-  @new_ctx {:head, ""}
+  @head_ctx {:head, ""}
 
   def new do
-    %Rexxar.Parser{ctx: @new_ctx, stack: []}
-  end
-
-  defp push_array(%__MODULE__{stack: t} = s, len) do
-    %__MODULE__{s| stack: [{[], len}| t], ctx: @new_ctx}
-  end
-
-  defp push_bulk(%__MODULE__{} = s, len) do
-    %__MODULE__{s| ctx: {:bulk, "", len}}
-  end
-
-  defp parse_one(<<"\n", t::binary>>, {:head, head}) do
-    case parse_head(head) do
-      {:array, n} -> {:array, n, t}
-      {:bulk, n} -> {:bulk, n, t}
-      n -> {:ok, n, t}
-    end
-  end
-
-  #binaries can have \r\n
-  defp parse_one(<<h, t::binary>>, {:bulk, value, 1} = ctx) do
-    parse_one(t, {:bulk, <<value::binary, h>>})
-  end
-  defp parse_one(<<h, t::binary>>, {:bulk, value, left} = ctx) do
-    parse_one(t, {:bulk, <<value::binary, h>>, left-1})
-  end
-
-  defp parse_one(<<"\r", t::binary>>, ctx) do
-    parse_one(t, ctx)
-  end
-  defp parse_one(<<"\n", t::binary>>, ctx) do
-    {:ok, ctx, t}
-  end
-
-  defp parse_one(<<h, t::binary>>, {:head, head} = ctx) do
-    parse_one(t, {:head, <<head::binary, h>>})
-  end
-
-  defp parse_one(<<>>, ctx) do
-    {:end, ctx}
+    %__MODULE__{ctx: @head_ctx, stack: []}
   end
 
   @type end_of_line :: {:end, t}
   @type parsed_value :: {:value, any(), String.t}
 
   @spec parse(t, String.t) :: end_of_line | parsed_value
-  def parse(%__MODULE__{ctx: ctx, stack: stack} = parser, t) do
-    case parse_one(t, ctx) do
-      #just read array/bulk string header
-      {:array, len, t} -> parse(push_array(parser, len), t)
-      {:bulk, len, t} -> parse(push_bulk(parser, len), t)
-
+  def parse(%__MODULE__{ctx: ctx, stack: stack}, t) do
+    case parse_one(t, ctx, stack) do
       #end of frame, keep parsing next frame
-      {:end, ctx} -> {:end, %__MODULE__{parser| ctx: ctx}}
+      {:end, ctx, stack} -> {:end, %__MODULE__{ctx: ctx, stack: stack}}
 
-      #done parsing current value
-      {:ok, ctx, t} ->
-        case merge(ctx, stack) do
-          #done with a simple value or array
-          {:ok, value} -> {:value, value, t}
-
-          #inserted into array, but not done
-          {:merged, stack} -> parse(%__MODULE__{stack: stack, ctx: @new_ctx}, t)
-        end
+      {:value, value, t} -> {:value, value, t}
     end
+  end
+  defp make_stack_frame(n) do
+    {[], n}
+  end
+
+  defp parse_one(<<"\n", t::binary>>, {:head, head}, stack) do
+    case parse_head(head) do
+      {:array, n} -> parse_one(t, @head_ctx, [make_stack_frame(n)|stack])
+      {:bulk, n} -> parse_one(t, {:bulk, "", n}, stack)
+      ctx -> merge(t, ctx, stack)
+    end
+  end
+  #binaries can have \r\n - match on len
+  defp parse_one(<<h, t::binary>>, {:bulk, value, 1}, stack) do
+    parse_one(t, {:bulk, <<value::binary, h>>}, stack)
+  end
+  defp parse_one(<<h, t::binary>>, {:bulk, value, left}, stack) do
+    parse_one(t, {:bulk, <<value::binary, h>>, left-1}, stack)
+  end
+  defp parse_one(<<"\r", t::binary>>, ctx, stack) do
+    parse_one(t, ctx, stack)
+  end
+  defp parse_one(<<"\n", t::binary>>, ctx, stack) do
+    merge(t, ctx, stack)
+  end
+  defp parse_one(<<h, t::binary>>, {:head, head}, stack) do
+    parse_one(t, {:head, <<head::binary, h>>}, stack)
+  end
+  defp parse_one(<<>>, ctx, stack) do
+    {:end, ctx, stack}
   end
 
   defp parse_head("+" <> line) do
@@ -99,26 +78,25 @@ defmodule Rexxar.Parser do
     {:string, line}
   end
 
-  defp merge({type, value}, []) do
+  defp merge(<<t::binary>>, {type, value}, []) do
     case type do
-      :bulk -> {:ok, value}
-      :string -> {:ok, value}
-      :int -> {:ok, value}
-      :array -> {:ok, value}
+      :bulk -> {:value, value, t}
+      :string -> {:value, value, t}
+      :int -> {:value, value, t}
+      :array -> {:value, value, t}
     end
   end
 
   #insert into array, pop and insert into parent
-  defp merge({type, value}, [{children, 1}|t]) do
+  defp merge(<<t::binary>>, {_type, value}, [{children, 1}| rest]) do
     res = Enum.reverse([value|children])
-    merge({:array, res}, t)
+    merge(t, {:array, res}, rest)
   end
-
   #insert into array, keep going
-  defp merge({type, value}, [{children, n}|t]) do
-    {:merged, [ {[value| children], n-1} | t]}
+  defp merge(<<t::binary>>, {_type, value}, [{children, n}| rest]) do
+    stack = [ {[value| children], n-1} | rest]
+    parse_one(t, @head_ctx, stack)
   end
-
   defp parse_int(n) do
     {i, _} = Integer.parse(n)
     i

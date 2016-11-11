@@ -52,21 +52,48 @@ defmodule RexxarTest do
     assert value == msg
   end
 
-  #  test "get long string bench" do
-  #    {:ok, p} = Rexxar.Connection.start_link
-  #    t0 = epoch()
-  #
-  #    str = Enum.reduce(1..10, "ASDF ASDF GDF gdfg dfg\r\n", fn _, a -> a <> a end)
-  #    Rexxar.Connection.command(p, ["SET", "aaaa", str])
-  #
-  #    tasks = Enum.map(1..100, fn x ->
-  #      Task.async(fn -> Rexxar.Connection.command(p, ["GET", "aaaa"]) end)
-  #    end)
-  #
-  #    Task.yield_many(tasks)
-  #    t1 = epoch()
-  #    IO.inspect(t1-t0)
-  #  end
+  test "get long string bench" do
+    {:ok, p} = Rexxar.Connection.start_link
+    t0 = epoch()
+
+    str = Enum.reduce(1..10, "ASDF ASDF GDF gdfg dfg\r\n", fn _, a -> a <> a end)
+    Rexxar.Connection.command(p, ["SET", "aaaa", str])
+
+    tasks = Enum.map(1..100, fn x ->
+      Task.async(fn -> Rexxar.Connection.command(p, ["GET", "aaaa"]) end)
+    end)
+
+    Task.yield_many(tasks)
+    t1 = epoch()
+    IO.inspect(t1-t0)
+  end
+
+
+  defp parse_all(parser, [x|xs]) do
+    case Parser.parse(parser, x) do
+      {:value, value, ""} -> value
+      {:end, parser} -> parse_all(parser, xs)
+    end
+  end
+
+  #1315, 1364, 1305, 1311, 1306
+  #1242
+  test "bulk string bench" do
+    str = Enum.reduce(1..10, "ASDF ASDF GDF gdfg dfg\r\n", fn _, a -> a <> a end)
+    parts = ["$#{byte_size(str)*5}\r\n",
+     str,
+     str,
+     str,
+     str,
+     str,
+     "\r\n"
+   ]
+    parser = Parser.new()
+    t0 = epoch()
+    Enum.each(1..100, fn _ -> parse_all(parser, parts) end)
+    t1 = epoch()
+    IO.inspect(t1-t0)
+  end
 
   # we dont always get the expected incr results, but that
   # is because some of our calls are received out of order
