@@ -45,6 +45,10 @@ defmodule Rexxar.Parser do
   defp parse_one(<<h, t::binary>>, {:bulk, value, 1}, stack) do
     parse_one(t, {:bulk, <<value::binary, h>>}, stack)
   end
+  #nil value has no body
+  defp parse_one(t, {:bulk, value, -1} = ctx, stack) do
+    merge(t, {:bulk, :nil}, stack)
+  end
   defp parse_one(<<h, t::binary>>, {:bulk, value, left}, stack) do
     parse_one(t, {:bulk, <<value::binary, h>>, left-1}, stack)
   end

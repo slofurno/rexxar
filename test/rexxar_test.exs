@@ -26,6 +26,11 @@ defmodule RexxarTest do
     assert value == r
   end
 
+  test "parse missing key" do
+    parser = Parser.new()
+    {:value, :nil, ""} = Parser.parse(parser, "$-1\r\n")
+  end
+
   def epoch do
     :os.system_time(:milli_seconds)
   end
