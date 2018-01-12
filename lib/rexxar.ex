@@ -1,18 +1,9 @@
 defmodule Rexxar do
-  @moduledoc """
-  Documentation for Rexxar.
-  """
+  def start_link() do
+    Rexxar.Connection.start_link()
+  end
 
-  @doc """
-  Hello world.
-
-  ## Examples
-
-      iex> Rexxar.hello
-      :world
-
-  """
-  def hello do
-    :world
+  def command(conn, command) do
+    Rexxar.Connection.command(conn, command)
   end
 end
